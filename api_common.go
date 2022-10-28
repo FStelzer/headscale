@@ -55,6 +55,19 @@ func (h *Headscale) generateMapResponse(
 		peers,
 	)
 
+	allMachines, err := h.ListMachines()
+	if err != nil {
+		log.Error().
+			Caller().
+			Str("func", "generateMapResponse").
+			Err(err).
+			Msg("Failed to list all Tailscale machines")
+
+		return nil, err
+	}
+
+	dnsConfig = filterMapResponseDNSConfigReachableRoutes(dnsConfig, allMachines, nodePeers)
+
 	resp := tailcfg.MapResponse{
 		KeepAlive:    false,
 		Node:         node,

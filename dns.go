@@ -6,8 +6,10 @@ import (
 	"strings"
 
 	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/rs/zerolog/log"
 	"go4.org/netipx"
 	"tailscale.com/tailcfg"
+	"tailscale.com/types/dnstype"
 	"tailscale.com/util/dnsname"
 )
 
@@ -183,6 +185,63 @@ func getMapResponseDNSConfig(
 	} else {
 		dnsConfig = dnsConfigOrig
 	}
+
+	return dnsConfig
+}
+
+// filterMapResponseDNSConfigReachableRoutes removes resolvers from the config that are reachable with an advertised route that the current node does not have access to.
+func filterMapResponseDNSConfigReachableRoutes(
+	dnsConfig *tailcfg.DNSConfig,
+	allMachines []Machine,
+	nodePeers []*tailcfg.Node,
+) *tailcfg.DNSConfig {
+	var allRoutes []netip.Prefix
+	for _, machine := range allMachines {
+		allRoutes = append(allRoutes, machine.EnabledRoutes...)
+	}
+
+	var peerRoutes []netip.Prefix
+	for _, peer := range nodePeers {
+		peerRoutes = append(peerRoutes, peer.PrimaryRoutes...)
+	}
+	reachableResolvers := map[string][]*dnstype.Resolver{}
+	for domain, resolvers := range dnsConfig.Routes {
+		for _, resolver := range resolvers {
+			ip, err := netip.ParseAddr(resolver.Addr)
+			if err == nil {
+				// Add the resolver if we have an enabled route to it
+				found := false
+				for _, peerRoute := range peerRoutes {
+					if peerRoute.Contains(ip) {
+						reachableResolvers[domain] = append(reachableResolvers[domain], resolver)
+						found = true
+
+						break
+					}
+				}
+
+				// Add the resolver if it's address is not in any possible advertised routes
+				for _, route := range allRoutes {
+					if route.Contains(ip) {
+						found = true
+
+						break
+					}
+				}
+				if !found {
+					reachableResolvers[domain] = append(reachableResolvers[domain], resolver)
+				}
+			} else {
+				log.Warn().
+					Str("domain", domain).
+					Str("resolver", resolver.Addr).
+					Err(err).
+					Msg("failed to parse resolver")
+			}
+		}
+	}
+	log.Debug().Str("reachableResolvers", fmt.Sprintf("%+v", reachableResolvers)).Msg("resolvers with unreachable but advertised routes removed")
+	dnsConfig.Routes = reachableResolvers
 
 	return dnsConfig
 }
