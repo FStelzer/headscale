@@ -204,6 +204,7 @@ func filterMapResponseDNSConfigReachableRoutes(
 	for _, peer := range nodePeers {
 		peerRoutes = append(peerRoutes, peer.PrimaryRoutes...)
 	}
+
 	reachableResolvers := map[string][]*dnstype.Resolver{}
 	for domain, resolvers := range dnsConfig.Routes {
 		for _, resolver := range resolvers {
